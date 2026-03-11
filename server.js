@@ -33,6 +33,7 @@ const familyLinkRoutes = require('./routes/family-links');
 const visitRoutes = require('./routes/visits');
 const taskRoutes = require('./routes/tasks');
 const alertRoutes = require('./routes/alerts');
+const medicationRoutes = require('./routes/medications');
 
 dotenv.config();
 
@@ -90,6 +91,7 @@ app.use('/api/family-links', familyLinkRoutes);
 app.use('/api/visits', visitRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/alerts', alertRoutes);
+app.use('/api/medications', medicationRoutes);
 
 // =====================================================
 // Database Test Route
