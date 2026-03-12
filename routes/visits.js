@@ -18,11 +18,15 @@ router.post('/', authMiddleware, isCaregiverOrFamily, validateVisit, handleValid
         // Combine date and time into scheduled_time DATETIME
         const scheduledDateTime = `${scheduled_date} ${scheduled_time || '00:00:00'}`;
 
+        // For family members, caregiver_id should be NULL (visit request)
+        // For caregivers, they are assigning themselves to the visit
+        const caregiverId = req.user.role === 'caregiver' ? req.user.id : null;
+
         const [result] = await pool.execute(
             `INSERT INTO visit
             (caregiver_id, care_recipient_id, scheduled_time, notes, status)
             VALUES (?, ?, ?, ?, 'scheduled')`,
-            [req.user.id, care_recipient_id, scheduledDateTime, notes]
+            [caregiverId, care_recipient_id, scheduledDateTime, notes]
         );
 
         res.status(201).json({
@@ -72,7 +76,7 @@ router.get('/upcoming', authMiddleware, isFamilyMember, async (req, res, next) =
             `SELECT v.*, cr.name as care_recipient_name, cg.name as caregiver_name
              FROM visit v
              JOIN care_recipient cr ON v.care_recipient_id = cr.care_recipient_id
-             JOIN caregiver cg ON v.caregiver_id = cg.caregiver_id
+             LEFT JOIN caregiver cg ON v.caregiver_id = cg.caregiver_id
              JOIN family_links fl ON cr.care_recipient_id = fl.care_recipient_id
              WHERE fl.family_member_id = ? 
                AND v.scheduled_time >= NOW()

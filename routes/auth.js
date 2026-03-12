@@ -255,4 +255,18 @@ router.get('/verify', require('../middleware/auth'), async (req, res) => {
     });
 });
 
+/**
+ * @route   POST /api/auth/logout
+ * @desc    Logout user (client clears token)
+ * @access  Private
+ */
+router.post('/logout', require('../middleware/auth'), async (req, res) => {
+    console.log('🚪 Logout request for user:', req.user.id);
+    
+    res.json({
+        success: true,
+        message: 'Logout successful - please clear client token'
+    });
+});
+
 module.exports = router;

@@ -17,7 +17,7 @@ router.post('/', authMiddleware, isCaregiver, validateTask, handleValidationErro
 
         // Verify visit belongs to this caregiver
         const [visit] = await pool.execute(
-            'SELECT id FROM visits WHERE id = ? AND caregiver_id = ?',
+            'SELECT visit_id FROM visit WHERE visit_id = ? AND caregiver_id = ?',
             [visit_id, req.user.id]
         );
 
@@ -29,7 +29,7 @@ router.post('/', authMiddleware, isCaregiver, validateTask, handleValidationErro
         }
 
         const [result] = await pool.execute(
-            `INSERT INTO tasks (visit_id, description, category, scheduled_time) 
+            `INSERT INTO task (visit_id, description, category, scheduled_time) 
              VALUES (?, ?, ?, ?)`,
             [visit_id, description, category, scheduled_time]
         );
@@ -59,24 +59,25 @@ router.get('/visit/:visit_id', authMiddleware, async (req, res, next) => {
 
         if (req.user.role === 'caregiver') {
             query = `
-                SELECT t.* FROM tasks t
-                JOIN visits v ON t.visit_id = v.id
+                SELECT t.* FROM task t
+                JOIN visit v ON t.visit_id = v.visit_id
                 WHERE t.visit_id = ? AND v.caregiver_id = ?
             `;
             params = [visit_id, req.user.id];
         } else if (req.user.role === 'family_member') {
             query = `
-                SELECT t.* FROM tasks t
-                JOIN visits v ON t.visit_id = v.id
-                JOIN care_recipients cr ON v.care_recipient_id = cr.id
-                WHERE t.visit_id = ? AND cr.registered_by = ?
+                SELECT t.* FROM task t
+                JOIN visit v ON t.visit_id = v.visit_id
+                JOIN care_recipient cr ON v.care_recipient_id = cr.care_recipient_id
+                JOIN family_links fl ON cr.care_recipient_id = fl.care_recipient_id
+                WHERE t.visit_id = ? AND fl.family_member_id = ?
             `;
             params = [visit_id, req.user.id];
         } else if (req.user.role === 'care_recipient') {
             query = `
-                SELECT t.* FROM tasks t
-                JOIN visits v ON t.visit_id = v.id
-                JOIN care_recipients cr ON v.care_recipient_id = cr.id
+                SELECT t.* FROM task t
+                JOIN visit v ON t.visit_id = v.visit_id
+                JOIN care_recipient cr ON v.care_recipient_id = cr.care_recipient_id
                 WHERE t.visit_id = ? AND cr.user_id = ?
             `;
             params = [visit_id, req.user.id];
@@ -106,9 +107,9 @@ router.put('/:id', authMiddleware, isCaregiver, async (req, res, next) => {
 
         // Verify task belongs to caregiver's visit
         const [task] = await pool.execute(
-            `SELECT t.id FROM tasks t
-             JOIN visits v ON t.visit_id = v.id
-             WHERE t.id = ? AND v.caregiver_id = ?`,
+            `SELECT t.task_id FROM task t
+             JOIN visit v ON t.visit_id = v.visit_id
+             WHERE t.task_id = ? AND v.caregiver_id = ?`,
             [id, req.user.id]
         );
 
@@ -120,11 +121,11 @@ router.put('/:id', authMiddleware, isCaregiver, async (req, res, next) => {
         }
 
         await pool.execute(
-            `UPDATE tasks 
+            `UPDATE task 
              SET description = COALESCE(?, description),
                  category = COALESCE(?, category),
                  scheduled_time = COALESCE(?, scheduled_time)
-             WHERE id = ?`,
+             WHERE task_id = ?`,
             [description, category, scheduled_time, id]
         );
 
@@ -149,9 +150,9 @@ router.put('/:id/complete', authMiddleware, isCaregiver, async (req, res, next) 
 
         // Verify task belongs to caregiver's visit
         const [task] = await pool.execute(
-            `SELECT t.id FROM tasks t
-             JOIN visits v ON t.visit_id = v.id
-             WHERE t.id = ? AND v.caregiver_id = ?`,
+            `SELECT t.task_id FROM task t
+             JOIN visit v ON t.visit_id = v.visit_id
+             WHERE t.task_id = ? AND v.caregiver_id = ?`,
             [id, req.user.id]
         );
 
@@ -163,11 +164,11 @@ router.put('/:id/complete', authMiddleware, isCaregiver, async (req, res, next) 
         }
 
         await pool.execute(
-            `UPDATE tasks 
-             SET completed = true, 
+            `UPDATE task 
+             SET status = 'completed', 
                  completed_at = NOW(),
                  notes = CONCAT(IFNULL(notes, ''), ' ', COALESCE(?, ''))
-             WHERE id = ?`,
+             WHERE task_id = ?`,
             [notes || '', id]
         );
 
@@ -191,9 +192,9 @@ router.delete('/:id', authMiddleware, isCaregiver, async (req, res, next) => {
 
         // Verify task belongs to caregiver's visit
         const [result] = await pool.execute(
-            `DELETE t FROM tasks t
-             JOIN visits v ON t.visit_id = v.id
-             WHERE t.id = ? AND v.caregiver_id = ?`,
+            `DELETE t FROM task t
+             JOIN visit v ON t.visit_id = v.visit_id
+             WHERE t.task_id = ? AND v.caregiver_id = ?`,
             [id, req.user.id]
         );
 
