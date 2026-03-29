@@ -71,10 +71,10 @@ router.get('/my-recipients',
         try {
             const [recipients] = await pool.execute(
                 `SELECT cr.*, fl.relationship, fl.is_primary,
-                        cg.name as assigned_caregiver_name
+                        cr.caregiver_name as assigned_caregiver_name,
+                        (SELECT COUNT(*) FROM medication m WHERE m.care_recipient_id = cr.care_recipient_id AND m.is_active = 1) as medications_count
                  FROM family_links fl
                  JOIN care_recipient cr ON fl.care_recipient_id = cr.care_recipient_id
-                 LEFT JOIN caregiver cg ON cr.assigned_caregiver_id = cg.caregiver_id
                  WHERE fl.family_member_id = ?
                  ORDER BY fl.is_primary DESC, cr.name ASC`,
                 [req.user.id]
@@ -86,6 +86,7 @@ router.get('/my-recipients',
                 data: recipients
             });
         } catch (error) {
+            console.error('❌ Error in my-recipients:', error);
             next(error);
         }
     }
@@ -118,6 +119,7 @@ router.get('/:care_recipient_id',
                 data: family
             });
         } catch (error) {
+            console.error('❌ Error fetching family members:', error);
             next(error);
         }
     }

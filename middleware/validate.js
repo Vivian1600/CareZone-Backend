@@ -128,15 +128,12 @@ const validateStartVisit = [
         .isFloat({ min: -180, max: 180 })
 ];
 
+// In middleware/validate.js or wherever validateCompleteVisit is defined
 const validateCompleteVisit = [
-    body('tasks').optional().isArray(),
-    body('notes').optional().isString(),
-    body('latitude')
-        .notEmpty().withMessage('Location required')
-        .isFloat({ min: -90, max: 90 }),
-    body('longitude')
-        .notEmpty().withMessage('Location required')
-        .isFloat({ min: -180, max: 180 })
+    body('latitude').optional().isFloat().withMessage('Latitude must be a number'),
+    body('longitude').optional().isFloat().withMessage('Longitude must be a number'),
+    body('notes').optional().isString().withMessage('Notes must be text'),
+    body('tasks').optional().isArray().withMessage('Tasks must be an array')
 ];
 
 // =====================================================

@@ -1,4 +1,3 @@
-// routes/medications.js
 const express = require('express');
 const router = express.Router();
 const { pool } = require('../config/database');
@@ -12,7 +11,7 @@ const { isFamilyMember, isCaregiver } = require('../middleware/role');
  */
 router.post('/', authMiddleware, async (req, res, next) => {
     try {
-        const { care_recipient_id, name, dosage, frequency, medical_condition } = req.body;
+        const { care_recipient_id, name, dosage, frequency, medical_condition, instructions } = req.body;
 
         console.log('=================================');
         console.log('💊 Creating Medication');
@@ -58,9 +57,9 @@ router.post('/', authMiddleware, async (req, res, next) => {
         // Create medication
         const [result] = await pool.execute(
             `INSERT INTO medication 
-            (care_recipient_id, name, dosage, frequency, medical_condition) 
-            VALUES (?, ?, ?, ?, ?)`,
-            [care_recipient_id, name, dosage, frequency, finalMedicalCondition]
+            (care_recipient_id, name, dosage, frequency, medical_condition, instructions, is_active, start_date) 
+            VALUES (?, ?, ?, ?, ?, ?, 1, CURDATE())`,
+            [care_recipient_id, name, dosage, frequency, finalMedicalCondition, instructions || null]
         );
 
         console.log('✅ Medication created successfully');
@@ -71,13 +70,14 @@ router.post('/', authMiddleware, async (req, res, next) => {
         res.status(201).json({
             success: true,
             message: 'Medication created successfully',
-            medication: {
+            data: {
                 medication_id: result.insertId,
                 care_recipient_id,
                 name,
                 dosage,
                 frequency,
-                medical_condition: finalMedicalCondition
+                medical_condition: finalMedicalCondition,
+                instructions: instructions || null
             }
         });
     } catch (error) {
@@ -88,7 +88,7 @@ router.post('/', authMiddleware, async (req, res, next) => {
 
 /**
  * @route   GET /api/medications/care-recipient/:careRecipientId
- * @desc    Get all medications for a care recipient
+ * @desc    Get all active medications for a care recipient
  * @access  Private (Caregiver or Family)
  */
 router.get('/care-recipient/:careRecipientId', authMiddleware, async (req, res, next) => {
@@ -98,8 +98,12 @@ router.get('/care-recipient/:careRecipientId', authMiddleware, async (req, res, 
         console.log('📋 Fetching medications for care recipient:', careRecipientId);
 
         const [medications] = await pool.execute(
-            `SELECT * FROM medication 
-             WHERE care_recipient_id = ? AND is_active = 1
+            `SELECT medication_id, name, dosage, frequency, medical_condition, 
+                    instructions, is_active, start_date, end_date, created_at
+             FROM medication 
+             WHERE care_recipient_id = ? 
+               AND is_active = 1
+               AND (end_date IS NULL OR end_date >= CURDATE())
              ORDER BY created_at DESC`,
             [careRecipientId]
         );
@@ -108,10 +112,97 @@ router.get('/care-recipient/:careRecipientId', authMiddleware, async (req, res, 
 
         res.json({
             success: true,
-            medications
+            data: medications
         });
     } catch (error) {
         console.error('❌ Error fetching medications:', error);
+        next(error);
+    }
+});
+
+/**
+ * @route   GET /api/medications/visit/:visitId
+ * @desc    Get medications for a specific visit (with administration status)
+ * @access  Private (Caregiver)
+ */
+router.get('/visit/:visitId', authMiddleware, async (req, res, next) => {
+    try {
+        const { visitId } = req.params;
+
+        // First get the visit to know which care recipient
+        const [visits] = await pool.execute(
+            `SELECT care_recipient_id FROM visit WHERE visit_id = ?`,
+            [visitId]
+        );
+
+        if (visits.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'Visit not found'
+            });
+        }
+
+        const care_recipient_id = visits[0].care_recipient_id;
+
+        // Get all active medications and whether they were administered during this visit
+        const [medications] = await pool.execute(
+            `SELECT m.*, 
+                    ma.administered, 
+                    ma.dose_given, 
+                    ma.administered_time,
+                    ma.side_effects_observed,
+                    ma.reason_not_given,
+                    ma.notes as admin_notes,
+                    ma.administration_id
+             FROM medication m
+             LEFT JOIN medication_administration ma 
+                ON ma.medication_id = m.medication_id 
+                AND ma.visit_id = ?
+             WHERE m.care_recipient_id = ?
+               AND m.is_active = 1
+               AND (m.end_date IS NULL OR m.end_date >= CURDATE())
+             ORDER BY m.name`,
+            [visitId, care_recipient_id]
+        );
+
+        res.json({
+            success: true,
+            data: medications
+        });
+    } catch (error) {
+        console.error('❌ Error fetching visit medications:', error);
+        next(error);
+    }
+});
+
+/**
+ * @route   GET /api/medications/history/:careRecipientId
+ * @desc    Get medication history (including discontinued) for a care recipient
+ * @access  Private (Family Member)
+ */
+router.get('/history/:careRecipientId', authMiddleware, isFamilyMember, async (req, res, next) => {
+    try {
+        const { careRecipientId } = req.params;
+
+        console.log('📋 Fetching medication history for care recipient:', careRecipientId);
+
+        const [medications] = await pool.execute(
+            `SELECT medication_id, name, dosage, frequency, medical_condition, 
+                    instructions, is_active, start_date, end_date, created_at
+             FROM medication 
+             WHERE care_recipient_id = ?
+             ORDER BY created_at DESC`,
+            [careRecipientId]
+        );
+
+        console.log('✅ Found', medications.length, 'medications (including discontinued)');
+
+        res.json({
+            success: true,
+            data: medications
+        });
+    } catch (error) {
+        console.error('❌ Error fetching medication history:', error);
         next(error);
     }
 });
@@ -124,7 +215,7 @@ router.get('/care-recipient/:careRecipientId', authMiddleware, async (req, res, 
 router.put('/:medicationId', authMiddleware, async (req, res, next) => {
     try {
         const { medicationId } = req.params;
-        const { name, dosage, frequency, medical_condition, is_active } = req.body;
+        const { name, dosage, frequency, medical_condition, instructions, is_active, end_date } = req.body;
 
         console.log('💊 Updating medication:', medicationId);
 
@@ -134,9 +225,11 @@ router.put('/:medicationId', authMiddleware, async (req, res, next) => {
                  dosage = COALESCE(?, dosage), 
                  frequency = COALESCE(?, frequency),
                  medical_condition = COALESCE(?, medical_condition),
-                 is_active = COALESCE(?, is_active)
+                 instructions = COALESCE(?, instructions),
+                 is_active = COALESCE(?, is_active),
+                 end_date = COALESCE(?, end_date)
              WHERE medication_id = ?`,
-            [name, dosage, frequency, medical_condition, is_active, medicationId]
+            [name, dosage, frequency, medical_condition, instructions, is_active, end_date, medicationId]
         );
 
         if (result.affectedRows === 0) {
@@ -170,7 +263,7 @@ router.delete('/:medicationId', authMiddleware, async (req, res, next) => {
         console.log('🗑️ Deleting medication:', medicationId);
 
         const [result] = await pool.execute(
-            `UPDATE medication SET is_active = 0 WHERE medication_id = ?`,
+            `UPDATE medication SET is_active = 0, end_date = CURDATE() WHERE medication_id = ?`,
             [medicationId]
         );
 
@@ -185,7 +278,7 @@ router.delete('/:medicationId', authMiddleware, async (req, res, next) => {
 
         res.json({
             success: true,
-            message: 'Medication deleted successfully'
+            message: 'Medication discontinued successfully'
         });
     } catch (error) {
         console.error('❌ Error deleting medication:', error);

@@ -7,11 +7,8 @@ const authMiddleware = require('../middleware/auth');
 const { isFamilyMember, isCaregiver } = require('../middleware/role');
 const { validateRegisterCareRecipient, handleValidationErrors } = require('../middleware/validate');
 
-/**
- * @route   POST /api/care-recipients/register
- * @desc    Family member registers a new care recipient
- * @access  Private (Family members only)
- */
+
+// routes/care-recipients.js - Updated /register endpoint
 router.post('/register', 
     authMiddleware, 
     isFamilyMember, 
@@ -25,28 +22,46 @@ router.post('/register',
             const familyMemberId = req.user.id;
             const {
                 name, email, phone, date_of_birth, gender, relationship,
-                care_level, emergency_contact_name, emergency_contact_phone,
-                emergency_contact_relationship, medical_notes, address
+                emergency_contact_name, emergency_contact_phone,
+                medical_notes, address
             } = req.body;
 
-            // Default password (should be changed on first login)
+            console.log('=================================');
+            console.log('📝 ADDING NEW CARE RECIPIENT');
+            console.log('Name:', name);
+            console.log('Email:', email);
+            console.log('Family Member ID:', familyMemberId);
+            console.log('Relationship:', relationship);
+            console.log('=================================');
+
+            // Default password
             const defaultPassword = 'password123';
             const salt = await bcrypt.genSalt(10);
             const password_hash = await bcrypt.hash(defaultPassword, salt);
 
-            // Insert care recipient
+            // Insert care recipient with email
             const [result] = await connection.execute(
                 `INSERT INTO care_recipient 
                 (name, email, contact_no, password_hash, date_of_birth, gender, 
-                 care_level, medical_notes, address, emergency_contact_name, 
-                 emergency_contact_phone, emergency_contact_relationship) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [name, email || null, phone || null, password_hash, date_of_birth, gender,
-                 care_level || 'Medium', medical_notes, address,
-                 emergency_contact_name, emergency_contact_phone, emergency_contact_relationship]
+                 medical_notes, address, emergency_contact_name, 
+                 emergency_contact_phone, status) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Active')`,
+                [
+                    name, 
+                    email || null,  // ← Email is included here
+                    phone || null, 
+                    password_hash, 
+                    date_of_birth, 
+                    gender,
+                    medical_notes, 
+                    address,
+                    emergency_contact_name, 
+                    emergency_contact_phone
+                ]
             );
 
             const careRecipientId = result.insertId;
+            console.log('✅ Care recipient created with ID:', careRecipientId);
 
             // Create family link
             await connection.execute(
@@ -54,6 +69,7 @@ router.post('/register',
                  VALUES (?, ?, ?, true)`,
                 [familyMemberId, careRecipientId, relationship]
             );
+            console.log('✅ Family link created');
 
             await connection.commit();
 
@@ -63,18 +79,21 @@ router.post('/register',
                 data: {
                     care_recipient_id: careRecipientId,
                     name,
+                    email,
                     relationship,
                     default_password: defaultPassword
                 }
             });
         } catch (error) {
             await connection.rollback();
+            console.error('❌ Error registering care recipient:', error);
             next(error);
         } finally {
             connection.release();
         }
     }
 );
+
 
 /**
  * @route   GET /api/care-recipients
@@ -92,7 +111,7 @@ router.get('/', authMiddleware, async (req, res, next) => {
                        cg.name as caregiver_name
                 FROM care_recipient cr
                 JOIN family_links fl ON cr.care_recipient_id = fl.care_recipient_id
-                LEFT JOIN caregiver cg ON cr.assigned_caregiver_id = cg.caregiver_id
+                LEFT JOIN caregiver cg ON cr.caregiver_name = cg.name
                 WHERE fl.family_member_id = ?
                 ORDER BY cr.name
             `;
@@ -105,7 +124,8 @@ router.get('/', authMiddleware, async (req, res, next) => {
                 FROM care_recipient cr
                 LEFT JOIN family_links fl ON cr.care_recipient_id = fl.care_recipient_id
                 LEFT JOIN family_member fm ON fl.family_member_id = fm.family_member_id
-                WHERE cr.assigned_caregiver_id = ? OR cr.assigned_caregiver_id IS NULL
+                WHERE cr.caregiver_name = (SELECT name FROM caregiver WHERE caregiver_id = ?) 
+                   OR cr.caregiver_name IS NULL
                 GROUP BY cr.care_recipient_id
                 ORDER BY cr.name
             `;
@@ -115,7 +135,7 @@ router.get('/', authMiddleware, async (req, res, next) => {
             query = `
                 SELECT cr.*, cg.name as caregiver_name
                 FROM care_recipient cr
-                LEFT JOIN caregiver cg ON cr.assigned_caregiver_id = cg.caregiver_id
+                LEFT JOIN caregiver cg ON cr.caregiver_name = cg.name
                 WHERE cr.care_recipient_id = ?
             `;
             params = [req.user.id];
@@ -129,13 +149,14 @@ router.get('/', authMiddleware, async (req, res, next) => {
             data: rows
         });
     } catch (error) {
+        console.error('❌ Error fetching care recipients:', error);
         next(error);
     }
 });
 
 /**
  * @route   GET /api/care-recipients/:id
- * @desc    Get single care recipient by ID
+ * @desc    Get single care recipient by ID with full details
  * @access  Private
  */
 router.get('/:id', authMiddleware, async (req, res, next) => {
@@ -147,7 +168,7 @@ router.get('/:id', authMiddleware, async (req, res, next) => {
                     cg.name as caregiver_name,
                     cg.phone_no as caregiver_phone
              FROM care_recipient cr
-             LEFT JOIN caregiver cg ON cr.assigned_caregiver_id = cg.caregiver_id
+             LEFT JOIN caregiver cg ON cr.caregiver_name = cg.name
              WHERE cr.care_recipient_id = ?`,
             [id]
         );
@@ -174,7 +195,17 @@ router.get('/:id', authMiddleware, async (req, res, next) => {
         // Get medications
         const [medications] = await pool.execute(
             `SELECT * FROM medication 
-             WHERE care_recipient_id = ? AND is_active = true`,
+             WHERE care_recipient_id = ? AND is_active = true
+             ORDER BY created_at DESC`,
+            [id]
+        );
+
+        // Get medical conditions
+        const [medicalConditions] = await pool.execute(
+            `SELECT condition_id, condition_name, description, created_at
+             FROM medical_conditions 
+             WHERE care_recipient_id = ?
+             ORDER BY created_at DESC`,
             [id]
         );
 
@@ -189,32 +220,58 @@ router.get('/:id', authMiddleware, async (req, res, next) => {
             [id]
         );
 
+        // Get tasks
+        const [tasks] = await pool.execute(
+            `SELECT t.*, cg.name as assigned_caregiver_name
+             FROM task t
+             JOIN visit v ON t.visit_id = v.visit_id
+             LEFT JOIN caregiver cg ON t.caregiver_id = cg.caregiver_id
+             WHERE v.care_recipient_id = ? 
+               AND t.status IN ('pending', 'in_progress')
+             ORDER BY t.scheduled_time ASC`,
+            [id]
+        );
+
         res.json({
             success: true,
             data: {
                 ...recipient,
                 family_members: family,
                 medications,
-                recent_visits: visits
+                medical_conditions: medicalConditions,
+                recent_visits: visits,
+                pending_tasks: tasks,
+                summary: {
+                    total_family_members: family.length,
+                    active_medications: medications.length,
+                    medical_conditions_count: medicalConditions.length,
+                    recent_visits_count: visits.length,
+                    pending_tasks_count: tasks.length
+                }
             }
         });
     } catch (error) {
+        console.error('❌ Error fetching care recipient details:', error);
         next(error);
     }
 });
 
 /**
- * @route   PUT /api/care-recipients/:id/assign-caregiver
- * @desc    Assign caregiver to care recipient
+ * @route   PUT /api/care-recipients/:id
+ * @desc    Update care recipient information
  * @access  Private (Family members only)
  */
-router.put('/:id/assign-caregiver',
-    authMiddleware,
-    isFamilyMember,
+router.put('/:id', 
+    authMiddleware, 
+    isFamilyMember, 
     async (req, res, next) => {
         try {
             const { id } = req.params;
-            const { caregiver_id } = req.body;
+            const {
+                name, email, phone, address, date_of_birth, gender,
+                emergency_contact_name, emergency_contact_phone,
+                emergency_contact_relationship, medical_notes, care_level, status
+            } = req.body;
 
             // Verify this family member is linked to this recipient
             const [link] = await pool.execute(
@@ -225,14 +282,71 @@ router.put('/:id/assign-caregiver',
             if (link.length === 0) {
                 return res.status(403).json({
                     success: false,
-                    message: 'You are not linked to this care recipient'
+                    message: 'You are not authorized to update this care recipient'
+                });
+            }
+
+            await pool.execute(
+                `UPDATE care_recipient 
+                 SET name = COALESCE(?, name),
+                     email = COALESCE(?, email),
+                     contact_no = COALESCE(?, contact_no),
+                     address = COALESCE(?, address),
+                     date_of_birth = COALESCE(?, date_of_birth),
+                     gender = COALESCE(?, gender),
+                     emergency_contact_name = COALESCE(?, emergency_contact_name),
+                     emergency_contact_phone = COALESCE(?, emergency_contact_phone),
+                     emergency_contact_relationship = COALESCE(?, emergency_contact_relationship),
+                     medical_notes = COALESCE(?, medical_notes),
+                     care_level = COALESCE(?, care_level),
+                     status = COALESCE(?, status)
+                 WHERE care_recipient_id = ?`,
+                [name, email, phone, address, date_of_birth, gender,
+                 emergency_contact_name, emergency_contact_phone, emergency_contact_relationship,
+                 medical_notes, care_level, status, id]
+            );
+
+            res.json({
+                success: true,
+                message: 'Care recipient updated successfully'
+            });
+        } catch (error) {
+            console.error('❌ Error updating care recipient:', error);
+            next(error);
+        }
+    }
+);
+
+/**
+ * @route   PUT /api/care-recipients/:id/assign-caregiver
+ * @desc    Assign caregiver to care recipient (by name)
+ * @access  Private (Family members only)
+ */
+router.put('/:id/assign-caregiver',
+    authMiddleware,
+    isFamilyMember,
+    async (req, res, next) => {
+        try {
+            const { id } = req.params;
+            const { caregiver_name } = req.body;
+
+            // Verify this family member is linked to this recipient
+            const [link] = await pool.execute(
+                'SELECT * FROM family_links WHERE family_member_id = ? AND care_recipient_id = ?',
+                [req.user.id, id]
+            );
+
+            if (link.length === 0) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'You are not authorized to assign caregivers to this recipient'
                 });
             }
 
             // Verify caregiver exists
             const [caregiver] = await pool.execute(
-                'SELECT caregiver_id FROM caregiver WHERE caregiver_id = ?',
-                [caregiver_id]
+                'SELECT caregiver_id, name FROM caregiver WHERE name = ? AND is_active = 1',
+                [caregiver_name]
             );
 
             if (caregiver.length === 0) {
@@ -243,15 +357,57 @@ router.put('/:id/assign-caregiver',
             }
 
             await pool.execute(
-                'UPDATE care_recipient SET assigned_caregiver_id = ? WHERE care_recipient_id = ?',
-                [caregiver_id, id]
+                'UPDATE care_recipient SET caregiver_name = ? WHERE care_recipient_id = ?',
+                [caregiver_name, id]
             );
 
             res.json({
                 success: true,
-                message: 'Caregiver assigned successfully'
+                message: `Caregiver "${caregiver_name}" assigned successfully`
             });
         } catch (error) {
+            console.error('❌ Error assigning caregiver:', error);
+            next(error);
+        }
+    }
+);
+
+/**
+ * @route   DELETE /api/care-recipients/:id
+ * @desc    Soft delete a care recipient (mark as inactive)
+ * @access  Private (Family members only)
+ */
+router.delete('/:id',
+    authMiddleware,
+    isFamilyMember,
+    async (req, res, next) => {
+        try {
+            const { id } = req.params;
+
+            // Verify this family member is linked to this recipient
+            const [link] = await pool.execute(
+                'SELECT * FROM family_links WHERE family_member_id = ? AND care_recipient_id = ?',
+                [req.user.id, id]
+            );
+
+            if (link.length === 0) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'You are not authorized to delete this care recipient'
+                });
+            }
+
+            await pool.execute(
+                'UPDATE care_recipient SET status = ? WHERE care_recipient_id = ?',
+                ['Inactive', id]
+            );
+
+            res.json({
+                success: true,
+                message: 'Care recipient deactivated successfully'
+            });
+        } catch (error) {
+            console.error('❌ Error deleting care recipient:', error);
             next(error);
         }
     }
@@ -274,7 +430,7 @@ router.get('/:id/dashboard', authMiddleware, isCaregiver, async (req, res, next)
         // Get care recipient details
         const [careRecipient] = await pool.execute(
             `SELECT care_recipient_id, name, email, contact_no, date_of_birth, gender, 
-                    address, medical_notes, status, created_at
+                    address, medical_notes, status, caregiver_name, created_at
              FROM care_recipient 
              WHERE care_recipient_id = ?`,
             [id]
@@ -336,7 +492,7 @@ router.get('/:id/dashboard', authMiddleware, isCaregiver, async (req, res, next)
              FROM visit v
              LEFT JOIN caregiver cg ON v.caregiver_id = cg.caregiver_id
              WHERE v.care_recipient_id = ? 
-             AND v.scheduled_time >= NOW()
+               AND v.scheduled_time >= NOW()
              ORDER BY v.scheduled_time ASC`,
             [id]
         );
@@ -352,7 +508,7 @@ router.get('/:id/dashboard', authMiddleware, isCaregiver, async (req, res, next)
              JOIN visit v ON t.visit_id = v.visit_id
              LEFT JOIN caregiver cg ON t.caregiver_id = cg.caregiver_id
              WHERE v.care_recipient_id = ? 
-             AND t.status IN ('pending', 'in_progress')
+               AND t.status IN ('pending', 'in_progress')
              ORDER BY t.scheduled_time ASC`,
             [id]
         );

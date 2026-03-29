@@ -34,7 +34,11 @@ const visitRoutes = require('./routes/visits');
 const taskRoutes = require('./routes/tasks');
 const alertRoutes = require('./routes/alerts');
 const medicationRoutes = require('./routes/medications');
-
+const medicalConditionRoutes = require('./routes/medicalConditions');
+const medicationAdministrationRoutes = require('./routes/medication-administration');
+const reportsRoutes = require('./routes/reports');
+const availabilityRoutes = require('./routes/availabilty');
+const notificationsRoutes = require('./routes/notifications');
 dotenv.config();
 
 const app = express();
@@ -92,6 +96,11 @@ app.use('/api/visits', visitRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/alerts', alertRoutes);
 app.use('/api/medications', medicationRoutes);
+app.use('/api/medical-conditions', medicalConditionRoutes);
+app.use('/api/medication-admin', medicationAdministrationRoutes);
+app.use('/api/reports', reportsRoutes);
+app.use('/api/availability', availabilityRoutes);
+app.use('/api/notifications', notificationsRoutes);
 
 // =====================================================
 // Database Test Route

@@ -261,3 +261,79 @@ router.get('/family-members/:care_recipient_id', authMiddleware, async (req, res
 });
 
 module.exports = router;
+// In routes/users.js, add:
+router.get('/family-member/:id', authMiddleware, async (req, res) => {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT * FROM family_member WHERE family_member_id = ?`,
+      [req.params.id]
+    );
+    res.json({ success: true, data: rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+// Add to routes/caregivers.js or users.js
+router.get('/caregiver/:id', authMiddleware, async (req, res) => {
+  try {
+    const [rows] = await pool.execute(
+      'SELECT * FROM caregiver WHERE caregiver_id = ?',
+      [req.params.id]
+    );
+    res.json({ success: true, data: rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+// In routes/caregivers.js or users.js
+router.get('/caregivers/:id', authMiddleware, async (req, res) => {
+  try {
+    const [rows] = await pool.execute(
+      'SELECT * FROM caregiver WHERE caregiver_id = ?',
+      [req.params.id]
+    );
+    res.json({ success: true, data: rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/caregivers/:id/stats', authMiddleware, async (req, res) => {
+  try {
+    const [stats] = await pool.execute(
+      `SELECT 
+        COUNT(*) as total_visits,
+        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_visits,
+        COUNT(DISTINCT care_recipient_id) as unique_patients
+       FROM visit WHERE caregiver_id = ?`,
+      [req.params.id]
+    );
+    res.json({ success: true, data: stats[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/family-members/:id', authMiddleware, async (req, res) => {
+  try {
+    const [rows] = await pool.execute(
+      'SELECT * FROM family_member WHERE family_member_id = ?',
+      [req.params.id]
+    );
+    res.json({ success: true, data: rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/medications/recipient/:id', authMiddleware, async (req, res) => {
+  try {
+    const [rows] = await pool.execute(
+      'SELECT * FROM medication WHERE care_recipient_id = ? AND is_active = true',
+      [req.params.id]
+    );
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    next(error);
+  }
+});
