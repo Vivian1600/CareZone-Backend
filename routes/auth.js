@@ -1,4 +1,3 @@
-// routes/auth.js
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
@@ -146,7 +145,6 @@ router.post('/register/caregiver', async (req, res, next) => {
         // Convert availability to JSON object if it's a string
         let availabilityJson = null;
         if (availability) {
-            // If it's a simple string like "Weekdays", convert to proper JSON
             if (typeof availability === 'string') {
                 availabilityJson = JSON.stringify({ days: availability });
             } else {
@@ -154,7 +152,7 @@ router.post('/register/caregiver', async (req, res, next) => {
             }
         }
 
-        // Insert into caregiver table - matching your columns
+        // Insert into caregiver table
         const [result] = await connection.execute(
             `INSERT INTO caregiver 
              (name, email, phone_no, password_hash, address, type, availability, is_active) 
@@ -253,7 +251,7 @@ router.post('/register/family', async (req, res, next) => {
         if (addRecipientNow && recipient) {
             console.log('📝 Adding care recipient:', recipient.name);
             
-            // Insert care recipient WITHOUT registered_by column
+            // Insert care recipient
             const [recipientResult] = await connection.execute(
                 `INSERT INTO care_recipient 
                  (name, date_of_birth, gender, address, contact_no,
@@ -322,47 +320,45 @@ router.post('/register/family', async (req, res, next) => {
 
 /**
  * @route   POST /api/auth/login
- * @desc    Login user (checks all tables)
+ * @desc    Login user (checks all tables with role validation)
  * @access  Public
  */
 router.post('/login', validateLogin, handleValidationErrors, async (req, res, next) => {
     try {
-        const { email, password } = req.body;
+        const { email, password, role } = req.body;
         
         console.log('=================================');
         console.log('🔍 LOGIN ATTEMPT');
         console.log('Email:', email);
-        console.log('Password length:', password.length);
+        console.log('Selected Role:', role);
         console.log('Timestamp:', new Date().toISOString());
         console.log('=================================');
         
         let user = null;
         let userTable = null;
 
-        // Check family_member table
-        console.log('🔎 Checking family_member table...');
-        const [familyMembers] = await pool.execute(
-            'SELECT family_member_id as id, name, email, contact_no as phone, password_hash, "family_member" as role FROM family_member WHERE email = ?',
-            [email]
-        );
-        console.log('📊 Family members found:', familyMembers.length);
-
-        if (familyMembers.length > 0) {
-            user = familyMembers[0];
-            userTable = 'family_member';
-            console.log('✅ Found in family_member table');
-            console.log('   Name:', user.name);
-            console.log('   ID:', user.id);
-        }
-
-        // Check caregiver table if not found
-        if (!user) {
+        // Check based on selected role
+        if (role === 'family_member') {
+            console.log('🔎 Checking family_member table...');
+            const [familyMembers] = await pool.execute(
+                'SELECT family_member_id as id, name, email, contact_no as phone, password_hash, "family_member" as role FROM family_member WHERE email = ?',
+                [email]
+            );
+            
+            if (familyMembers.length > 0) {
+                user = familyMembers[0];
+                userTable = 'family_member';
+                console.log('✅ Found in family_member table');
+                console.log('   Name:', user.name);
+                console.log('   ID:', user.id);
+            }
+        } 
+        else if (role === 'caregiver') {
             console.log('🔎 Checking caregiver table...');
             const [caregivers] = await pool.execute(
                 'SELECT caregiver_id as id, name, email, phone_no as phone, password_hash, "caregiver" as role FROM caregiver WHERE email = ?',
                 [email]
             );
-            console.log('📊 Caregivers found:', caregivers.length);
             
             if (caregivers.length > 0) {
                 user = caregivers[0];
@@ -372,15 +368,12 @@ router.post('/login', validateLogin, handleValidationErrors, async (req, res, ne
                 console.log('   ID:', user.id);
             }
         }
-
-        // Check care_recipient table if not found
-        if (!user) {
+        else if (role === 'care_recipient') {
             console.log('🔎 Checking care_recipient table...');
             const [recipients] = await pool.execute(
                 'SELECT care_recipient_id as id, name, email, contact_no as phone, password_hash, "care_recipient" as role FROM care_recipient WHERE email = ?',
                 [email]
             );
-            console.log('📊 Care recipients found:', recipients.length);
             
             if (recipients.length > 0) {
                 user = recipients[0];
@@ -388,25 +381,27 @@ router.post('/login', validateLogin, handleValidationErrors, async (req, res, ne
                 console.log('✅ Found in care_recipient table');
                 console.log('   Name:', user.name);
                 console.log('   ID:', user.id);
-                
-                // Debug the hash
-                console.log('   Stored hash prefix:', user.password_hash.substring(0, 30) + '...');
-                console.log('   Expected hash prefix:', '$2a$10$N9qo8uLOickgx2ZMRZoMy.M...');
             }
+        }
+        else {
+            console.log('❌ Invalid role selected:', role);
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid role selected'
+            });
         }
 
         if (!user) {
-            console.log('❌ User NOT found in any table');
+            console.log('❌ No account found with this email for selected role:', role);
             console.log('=================================');
             return res.status(401).json({
                 success: false,
-                message: 'Invalid email or password'
+                message: `No account found as ${role} with this email. Please select the correct role or register.`
             });
         }
 
         // Verify password
         console.log('🔐 Verifying password...');
-        console.log('   Stored hash length:', user.password_hash.length);
         
         const isMatch = await bcrypt.compare(password, user.password_hash);
         console.log('   Password match result:', isMatch);
