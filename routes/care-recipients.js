@@ -541,4 +541,64 @@ router.get('/:id/dashboard', authMiddleware, isCaregiver, async (req, res, next)
     }
 });
 
+// GET /api/care-recipient/:id/info
+// Get all patient information (conditions, medications, recent visits)
+router.get('/:id/info', authMiddleware, async (req, res, next) => {
+    try {
+        const { id } = req.params;
+
+        // Get medical conditions
+        const [conditions] = await pool.execute(
+            `SELECT condition_name, description 
+             FROM medical_conditions 
+             WHERE care_recipient_id = ?`,
+            [id]
+        );
+
+        // Get active medications
+        const [medications] = await pool.execute(
+            `SELECT name, dosage, frequency, instructions 
+             FROM medication 
+             WHERE care_recipient_id = ? AND is_active = 1`,
+            [id]
+        );
+
+        // Get recent visits (last 5)
+        const [recentVisits] = await pool.execute(
+            `SELECT v.scheduled_time as date, v.notes, cg.name as caregiver_name
+             FROM visit v
+             LEFT JOIN caregiver cg ON v.caregiver_id = cg.caregiver_id
+             WHERE v.care_recipient_id = ?
+               AND v.status = 'completed'
+             ORDER BY v.scheduled_time DESC
+             LIMIT 5`,
+            [id]
+        );
+
+        // Get emergency contact
+        const [recipient] = await pool.execute(
+            `SELECT emergency_contact_name, emergency_contact_phone, medical_notes
+             FROM care_recipient 
+             WHERE care_recipient_id = ?`,
+            [id]
+        );
+
+        res.json({
+            success: true,
+            data: {
+                conditions: conditions,
+                medications: medications,
+                recent_visits: recentVisits,
+                emergency_contact_name: recipient[0]?.emergency_contact_name,
+                emergency_contact_phone: recipient[0]?.emergency_contact_phone,
+                special_instructions: recipient[0]?.medical_notes
+            }
+        });
+
+    } catch (error) {
+        console.error('Error fetching patient info:', error);
+        next(error);
+    }
+});
+
 module.exports = router;

@@ -39,6 +39,8 @@ const medicationAdministrationRoutes = require('./routes/medication-administrati
 const reportsRoutes = require('./routes/reports');
 const availabilityRoutes = require('./routes/availabilty');
 const notificationsRoutes = require('./routes/notifications');
+const caregiverNotesRoutes = require ( ' ./routes/caregiver-notes');
+
 dotenv.config();
 
 const app = express();
@@ -101,6 +103,7 @@ app.use('/api/medication-admin', medicationAdministrationRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/availability', availabilityRoutes);
 app.use('/api/notifications', notificationsRoutes);
+app.use( '/api/caregiver-notes', caregiverNotesRoutes); 
 
 // =====================================================
 // Database Test Route
