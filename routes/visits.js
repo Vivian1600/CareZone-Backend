@@ -114,7 +114,7 @@ router.post('/', authMiddleware, isCaregiverOrFamily, validateVisit, handleValid
 
 // =====================================================
 // GET /api/visits/pending-acknowledgment - Get pending acknowledgments for caregiver
-// =====================================================
+// ===================================================
 router.get('/pending-acknowledgment', authMiddleware, isCaregiver, async (req, res, next) => {
     try {
         console.log('🔍 Fetching pending acknowledgments for caregiver:', req.user.id);
@@ -127,7 +127,6 @@ router.get('/pending-acknowledgment', authMiddleware, isCaregiver, async (req, r
                AND (v.acknowledged = false OR v.acknowledged IS NULL)
                AND (v.declined_by_caregiver = false OR v.declined_by_caregiver IS NULL)
                AND v.status = 'scheduled'
-               AND v.scheduled_time >= NOW()
              ORDER BY v.scheduled_time ASC`,
             [req.user.id]
         );
