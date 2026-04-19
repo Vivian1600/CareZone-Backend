@@ -1,20 +1,25 @@
 const mysql = require('mysql2/promise');
-require('dotenv').config();
+
+// Don't load dotenv on Railway
+if (process.env.NODE_ENV !== 'production') {
+  require('dotenv').config();
+}
 
 // Create a connection pool
 let pool;
 
+// Check for Railway's DATABASE_URL first
 if (process.env.DATABASE_URL) {
-  // Railway production - use DATABASE_URL
+  console.log('📡 Using Railway database connection');
   pool = mysql.createPool({
     uri: process.env.DATABASE_URL,
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
   });
-  console.log('📡 Using Railway database connection');
 } else {
-  // Local development - use individual variables
+  // Local development
+  console.log('💻 Using local database connection');
   pool = mysql.createPool({
     host: process.env.DB_HOST || 'localhost',
     user: process.env.DB_USER || 'root',
@@ -24,7 +29,6 @@ if (process.env.DATABASE_URL) {
     connectionLimit: 10,
     queueLimit: 0
   });
-  console.log('💻 Using local database connection');
 }
 
 // Test database connection
