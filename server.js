@@ -55,6 +55,11 @@ app.use(express.urlencoded({ extended: true }));
 // Test DB connection on startup
 testConnection();
 
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 // =====================================================
 // Public Routes (No Authentication Required)
 // =====================================================
